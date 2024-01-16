@@ -176,15 +176,15 @@ fn main() {
     let c = SpendCircuit {
         leaf_params: leaf_crh_params.clone(),
         two_to_one_params: two_to_one_crh_params.clone(),
-        root: root.clone(),
+        root,
         proof: tree_proof.clone(),
-        nullifier: nullifier.clone(),
-        secret: leaked_secret.clone(),
+        nullifier,
+        secret: leaked_secret,
     };
 
     let proof = Groth16::<MNT4_753>::prove(&pk, c.clone(), rng).unwrap();
 
-    assert!(Groth16::<MNT4_753>::verify(&vk, &vec![root, nullifier], &proof).unwrap());
+    assert!(Groth16::<MNT4_753>::verify(&vk, &[root, nullifier], &proof).unwrap());
 
     /* Enter your solution here */
 
@@ -198,15 +198,15 @@ fn main() {
     let c2 = SpendCircuit {
         leaf_params: leaf_crh_params.clone(),
         two_to_one_params: two_to_one_crh_params.clone(),
-        root: root.clone(),
+        root,
         proof: tree_proof.clone(),
-        nullifier: nullifier_hack.clone(),
-        secret: secret_hack.clone(),
+        nullifier: nullifier_hack,
+        secret: secret_hack,
     };
 
     let proof = Groth16::<MNT4_753>::prove(&pk, c2.clone(), rng).unwrap();
 
-    assert!(Groth16::<MNT4_753>::verify(&vk, &vec![root, nullifier_hack], &proof).unwrap());
+    assert!(Groth16::<MNT4_753>::verify(&vk, &[root, nullifier_hack], &proof).unwrap());
 }
 
 const PUZZLE_DESCRIPTION: &str = r"
