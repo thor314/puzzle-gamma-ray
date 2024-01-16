@@ -1,3 +1,7 @@
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(dead_code)]
+
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_mnt4_753::{Fr as MNT4BigFr, MNT4_753};
@@ -12,7 +16,8 @@ use ark_r1cs_std::prelude::*;
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
 use ark_serialize::{CanonicalDeserialize, Read};
 
-use prompt::{puzzle, welcome};
+use log::{debug, info};
+// use prompt::{puzzle, welcome};
 
 use std::fs::File;
 use std::io::Cursor;
@@ -136,46 +141,49 @@ fn from_file<T: CanonicalDeserialize>(path: &str) -> T {
 }
 
 fn main() {
-    welcome();
-    puzzle(PUZZLE_DESCRIPTION);
-
+    // welcome();
+    let _ = env_logger::builder()
+        .filter_level(log::LevelFilter::Debug)
+        .try_init();
+    // puzzle(PUZZLE_DESCRIPTION);
     let rng = &mut ark_std::rand::rngs::StdRng::seed_from_u64(0u64);
 
+    // Construct the merkle tree with poseidon as hash:
     let leaves: Vec<Vec<MNT4BigFr>> = from_file("./leaves.bin");
     let leaked_secret: MNT4BigFr = from_file("./leaked_secret.bin");
+    // debug!("leaves contains leaked secret?: {}", leaves.iter().flatten().cloned().collect::<Vec<_>>().contains(&leaked_secret)); // false
     let (pk, vk): (
         <Groth16<MNT4_753> as SNARK<MNT4BigFr>>::ProvingKey,
         <Groth16<MNT4_753> as SNARK<MNT4BigFr>>::VerifyingKey,
     ) = from_file("./proof_keys.bin");
+    // debug!("leaves: {leaves:?}, leaked_secret: {leaked_secret:?}, pk = {pk:?}, vk = {vk:?}");
+    // debug!("leaked_secret: {leaked_secret:?}");
 
     let leaf_crh_params = poseidon_parameters::poseidon_parameters();
     let i = 2;
-    let two_to_one_crh_params = leaf_crh_params.clone();
+    // let leaf_crh_params = leaf_crh_params.clone();
 
     let nullifier = <LeafH as CRHScheme>::evaluate(&leaf_crh_params, vec![leaked_secret]).unwrap();
 
     let tree = MntMerkleTree::new(
         &leaf_crh_params,
-        &two_to_one_crh_params,
+        &leaf_crh_params, // repeat?
         leaves.iter().map(|x| x.as_slice()),
     )
     .unwrap();
     let root = tree.root();
-    let leaf = &leaves[i];
+    let leaf = &leaves[i]; // why second leaf?
 
     let tree_proof = tree.generate_proof(i).unwrap();
     assert!(tree_proof
-        .verify(
-            &leaf_crh_params,
-            &two_to_one_crh_params,
-            &root,
-            leaf.as_slice()
-        )
+        .verify(&leaf_crh_params, &leaf_crh_params, &root, leaf.as_slice())
         .unwrap());
+
+    info!("tree proof verifed");
 
     let c = SpendCircuit {
         leaf_params: leaf_crh_params.clone(),
-        two_to_one_params: two_to_one_crh_params.clone(),
+        two_to_one_params: leaf_crh_params.clone(),
         root,
         proof: tree_proof.clone(),
         nullifier,
@@ -183,10 +191,14 @@ fn main() {
     };
 
     let proof = Groth16::<MNT4_753>::prove(&pk, c.clone(), rng).unwrap();
+    info!("first proof constructed");
 
     assert!(Groth16::<MNT4_753>::verify(&vk, &[root, nullifier], &proof).unwrap());
+    // debug!("first proof verifed: {proof:?}");
+    info!("first proof verifed");
 
     /* Enter your solution here */
+    // we will generate a faulty nullifier and secret, that satisfy the same tree proof for leaf at index 2
 
     let nullifier_hack = MNT4BigFr::from(0);
     let secret_hack = MNT4BigFr::from(0);
@@ -197,7 +209,7 @@ fn main() {
 
     let c2 = SpendCircuit {
         leaf_params: leaf_crh_params.clone(),
-        two_to_one_params: two_to_one_crh_params.clone(),
+        two_to_one_params: leaf_crh_params.clone(),
         root,
         proof: tree_proof.clone(),
         nullifier: nullifier_hack,
@@ -205,12 +217,15 @@ fn main() {
     };
 
     let proof = Groth16::<MNT4_753>::prove(&pk, c2.clone(), rng).unwrap();
+    info!("second proof constructed: {proof:?}");
 
-    assert!(Groth16::<MNT4_753>::verify(&vk, &[root, nullifier_hack], &proof).unwrap());
+    let out = Groth16::<MNT4_753>::verify(&vk, &[root, nullifier_hack], &proof).unwrap();
+    info!("second proof verification: {out}");
+    assert!(out);
 }
 
-const PUZZLE_DESCRIPTION: &str = r"
-Bob was deeply inspired by the Zcash design [1] for private transactions [2] and had some pretty cool ideas on how to adapt it for his requirements. He was also inspired by the Mina design for the lightest blockchain and wanted to combine the two. In order to achieve that, Bob used the MNT7653 cycle of curves to enable efficient infinite recursion, and used elliptic curve public keys to authorize spends. He released a first version of the system to the world and Alice soon announced she was able to double spend by creating two different nullifiers for the same key... 
+// const PUZZLE_DESCRIPTION: &str = r"
+// Bob was deeply inspired by the Zcash design [1] for private transactions [2] and had some pretty cool ideas on how to adapt it for his requirements. He was also inspired by the Mina design for the lightest blockchain and wanted to combine the two. In order to achieve that, Bob used the MNT7653 cycle of curves to enable efficient infinite recursion, and used elliptic curve public keys to authorize spends. He released a first version of the system to the world and Alice soon announced she was able to double spend by creating two different nullifiers for the same key...
 
-[1] https://zips.z.cash/protocol/protocol.pdf
-";
+// [1] https://zips.z.cash/protocol/protocol.pdf
+// ";

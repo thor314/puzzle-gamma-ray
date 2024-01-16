@@ -1,0 +1,27 @@
+   Compiling puzzle-gamma-ray v0.1.0 (/home/thor/r/puzzle-gamma-ray)
+warning: unused import: `debug`
+  --> src/main.rs:15:11
+   |
+15 | use log::{debug, info};
+   |           ^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused imports: `puzzle`, `welcome`
+  --> src/main.rs:16:14
+   |
+16 | use prompt::{puzzle, welcome};
+   |              ^^^^^^  ^^^^^^^
+
+warning: constant `PUZZLE_DESCRIPTION` is never used
+   --> src/main.rs:223:7
+    |
+223 | const PUZZLE_DESCRIPTION: &str = r"
+    |       ^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: `puzzle-gamma-ray` (bin "main") generated 3 warnings (run `cargo fix --bin "main"` to apply 2 suggestions)
+    Finished dev [unoptimized + debuginfo] target(s) in 1.76s
+     Running `target/debug/main`
+[2024-01-16T20:36:37Z INFO  main] tree proof verifed
