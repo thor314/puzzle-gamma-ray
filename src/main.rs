@@ -1,6 +1,7 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
+#![allow(unreachable_code)]
 use std::{fs::File, io::Cursor};
 
 use ark_crypto_primitives::{
@@ -17,7 +18,7 @@ use ark_mnt6_753::{constraints::G1Var, Fr as MNT6BigFr, G1Affine};
 use ark_r1cs_std::{fields::fp::FpVar, prelude::*};
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
 use ark_serialize::{CanonicalDeserialize, Read};
-use ark_std::rand::SeedableRng;
+use ark_std::rand::{rngs::StdRng, SeedableRng};
 use log::{debug, info};
 use prompt::{puzzle, welcome};
 
@@ -91,19 +92,22 @@ impl ConstraintSynthesizer<ConstraintF> for SpendCircuit {
     // MNT6 MODULUS here?
     Boolean::enforce_smaller_or_equal_than_le(&secret_bits, MNT6BigFr::MODULUS)?;
 
-    let nullifier = <LeafHG as CRHSchemeGadget<LeafH, _>>::OutputVar::new_input(
-      ark_relations::ns!(cs, "nullifier"),
-      || Ok(self.nullifier),
-    )?;
+    let nullifier: FpVar<ConstraintF> =
+      <LeafHG as CRHSchemeGadget<LeafH, _>>::OutputVar::new_input(
+        ark_relations::ns!(cs, "nullifier"),
+        || Ok(self.nullifier),
+      )?;
 
     let nullifier_in_circuit =
       <LeafHG as CRHSchemeGadget<LeafH, _>>::evaluate(&leaf_crh_params_var, &[secret])?;
     nullifier_in_circuit.enforce_equal(&nullifier)?;
 
-    // let:
     // base = Generator G over MNT6
-    // sk = x
-    // pk = x*G
+    // secret key z
+    // pk = (z*G).x
+    //
+    // inverse attempt, try:
+    // pk = ((-z) * G).x
     let base = G1Var::new_constant(ark_relations::ns!(cs, "base"), G1Affine::generator())?;
     let pk = base.scalar_mul_le(secret_bits.iter())?.to_affine()?;
 
@@ -137,7 +141,7 @@ fn main() {
   let _ = env_logger::builder().filter_level(log::LevelFilter::Debug).try_init();
 
   // note that merkle tree elements constructed over mnt4, while circuit over mnt6?
-  // 
+  //
   // Construct the merkle tree with poseidon as hash:
   let leaves: Vec<Vec<MNT4BigFr>> = from_file("./leaves.bin");
   let leaked_secret: MNT4BigFr = from_file("./leaked_secret.bin");
@@ -150,7 +154,7 @@ fn main() {
   let i = 2;
   // let leaf_crh_params = leaf_crh_params.clone();
 
-  let nullifier = <LeafH as CRHScheme>::evaluate(&leaf_crh_params, vec![leaked_secret]).unwrap();
+  let nullifier = <LeafH as CRHScheme>::evaluate(&leaf_crh_params, [leaked_secret]).unwrap();
 
   let tree = MntMerkleTree::new(
     &leaf_crh_params,
@@ -183,10 +187,9 @@ fn main() {
   info!("first proof verifed");
 
   // Enter your solution here
-  // we will generate a faulty nullifier and secret, that satisfy the same tree proof for leaf at
+  // we will generate a faulty secret, that satisfy the same tree proof for leaf at
   // index 2
   let (nullifier_hack, secret_hack) = get_hack(&leaf_crh_params, &leaked_secret);
-
   // End of solution
 
   assert_ne!(nullifier, nullifier_hack);
@@ -216,11 +219,25 @@ fn get_hack(
   MNT4BigFr,
   // ark_ff::Fp<ark_ff::MontBackend<ark_mnt4_753::FrConfig, 12>, 12>,
 ) {
-  let nullifier = <LeafH as CRHScheme>::evaluate(leaf_crh_params, vec![*leaked_secret]).unwrap();
-  let secret = MNT4BigFr::from(0);
-
-  (nullifier, secret)
+  let old_nullifier: MNT4BigFr = LeafH::evaluate(leaf_crh_params, vec![*leaked_secret]).unwrap();
+  let new_secret: MNT4BigFr = -*leaked_secret;
+  let nullifier: MNT4BigFr = LeafH::evaluate(leaf_crh_params, vec![new_secret]).unwrap();
+  (nullifier, new_secret)
 }
+
+// base = Generator G over MNT6
+// secret key z
+// pk = (z*G).x
+//
+// inverse attempt, try:
+// pk = ((-z) * G).x
+
+// use ark_ec::pairing::Pairing;
+// use ark_std::UniformRand;
+// let new_secret: MNT4BigFr = MNT4BigFr::rand(rng);
+
+// let g1: G1Affine = ark_mnt6_753::G1Affine::generator();
+// //   let pairing = ark_mnt6_753::MNT6_753::pairing(&g1, &new_secret);
 
 const PUZZLE_DESCRIPTION: &str = r"
 Bob was deeply inspired by the Zcash design [1] for private transactions [2] and had some pretty cool ideas on how to adapt it for his requirements. He was also inspired by the Mina design for the lightest blockchain and wanted to combine the two. In order to achieve that, Bob used the MNT7653 cycle of curves to enable efficient infinite recursion, and used elliptic curve public keys to authorize spends. He released a first version of the system to the world and Alice soon announced she was able to double spend by creating two different nullifiers for the same key...
