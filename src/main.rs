@@ -7,6 +7,7 @@ use ark_crypto_primitives::{
   crh::{poseidon, TwoToOneCRHScheme, *},
   merkle_tree::{constraints::*, Config, MerkleTree, Path, *},
   snark::SNARK,
+  sponge::poseidon::PoseidonConfig,
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -23,6 +24,7 @@ use prompt::{puzzle, welcome};
 pub mod poseidon_parameters;
 
 type ConstraintF = MNT4BigFr;
+
 type LeafH = poseidon::CRH<ConstraintF>;
 type LeafHG = poseidon::constraints::CRHGadget<ConstraintF>;
 type CompressH = poseidon::TwoToOneCRH<ConstraintF>;
@@ -86,6 +88,7 @@ impl ConstraintSynthesizer<ConstraintF> for SpendCircuit {
 
     let secret = FpVar::new_witness(ark_relations::ns!(cs, "secret"), || Ok(self.secret))?;
     let secret_bits = secret.to_bits_le()?;
+    // MNT6 MODULUS here?
     Boolean::enforce_smaller_or_equal_than_le(&secret_bits, MNT6BigFr::MODULUS)?;
 
     let nullifier = <LeafHG as CRHSchemeGadget<LeafH, _>>::OutputVar::new_input(
@@ -98,7 +101,7 @@ impl ConstraintSynthesizer<ConstraintF> for SpendCircuit {
     nullifier_in_circuit.enforce_equal(&nullifier)?;
 
     // let:
-    // base = Generator G
+    // base = Generator G over MNT6
     // sk = x
     // pk = x*G
     let base = G1Var::new_constant(ark_relations::ns!(cs, "base"), G1Affine::generator())?;
@@ -112,6 +115,7 @@ impl ConstraintSynthesizer<ConstraintF> for SpendCircuit {
     let cw: PathVar<MntMerkleTreeParams, ConstraintF, MntMerkleTreeParamsVar> =
       PathVar::new_witness(ark_relations::ns!(cs, "new_witness"), || Ok(&self.proof))?;
 
+    // check that leaf_g is in the merkle tree
     cw.verify_membership(&leaf_crh_params_var, &two_to_one_crh_params_var, &root, &leaf_g)?
       .enforce_equal(&Boolean::constant(true))?;
 
@@ -132,17 +136,15 @@ fn main() {
   let rng = &mut ark_std::rand::rngs::StdRng::seed_from_u64(0u64);
   let _ = env_logger::builder().filter_level(log::LevelFilter::Debug).try_init();
 
+  // note that merkle tree elements constructed over mnt4, while circuit over mnt6?
+  // 
   // Construct the merkle tree with poseidon as hash:
   let leaves: Vec<Vec<MNT4BigFr>> = from_file("./leaves.bin");
   let leaked_secret: MNT4BigFr = from_file("./leaked_secret.bin");
-  // debug!("leaves contains leaked secret?: {}",
-  // leaves.iter().flatten().cloned().collect::<Vec<_>>().contains(&leaked_secret)); // false
   let (pk, vk): (
     <Groth16<MNT4_753> as SNARK<MNT4BigFr>>::ProvingKey,
     <Groth16<MNT4_753> as SNARK<MNT4BigFr>>::VerifyingKey,
   ) = from_file("./proof_keys.bin");
-  // debug!("leaves: {leaves:?}, leaked_secret: {leaked_secret:?}, pk = {pk:?}, vk = {vk:?}");
-  // debug!("leaked_secret: {leaked_secret:?}");
 
   let leaf_crh_params = poseidon_parameters::poseidon_parameters();
   let i = 2;
@@ -157,11 +159,10 @@ fn main() {
   )
   .unwrap();
   let root = tree.root();
-  let leaf = &leaves[i]; // why second leaf?
+  let leaf = &leaves[i];
 
   let tree_proof = tree.generate_proof(i).unwrap();
   assert!(tree_proof.verify(&leaf_crh_params, &leaf_crh_params, &root, leaf.as_slice()).unwrap());
-
   info!("tree proof verifed");
 
   let c = SpendCircuit {
@@ -184,10 +185,7 @@ fn main() {
   // Enter your solution here
   // we will generate a faulty nullifier and secret, that satisfy the same tree proof for leaf at
   // index 2
-
-  let (nullifier_hack, secret_hack) = get_hack();
-  // let nullifier_hack = MNT4BigFr::from(0);
-  // let secret_hack = MNT4BigFr::from(0);
+  let (nullifier_hack, secret_hack) = get_hack(&leaf_crh_params, &leaked_secret);
 
   // End of solution
 
@@ -210,12 +208,18 @@ fn main() {
   assert!(out);
 }
 
-fn get_hack() -> (
+fn get_hack(
+  leaf_crh_params: &PoseidonConfig<MNT4BigFr>,
+  leaked_secret: &MNT4BigFr,
+) -> (
   MNT4BigFr,
   MNT4BigFr,
   // ark_ff::Fp<ark_ff::MontBackend<ark_mnt4_753::FrConfig, 12>, 12>,
 ) {
-  todo!()
+  let nullifier = <LeafH as CRHScheme>::evaluate(leaf_crh_params, vec![*leaked_secret]).unwrap();
+  let secret = MNT4BigFr::from(0);
+
+  (nullifier, secret)
 }
 
 const PUZZLE_DESCRIPTION: &str = r"
