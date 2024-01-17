@@ -214,12 +214,17 @@ fn main() {
 fn get_hack(
   leaf_crh_params: &PoseidonConfig<MNT4BigFr>,
   leaked_secret: &MNT4BigFr,
-) -> (
-  MNT4BigFr,
-  MNT4BigFr,
-  // ark_ff::Fp<ark_ff::MontBackend<ark_mnt4_753::FrConfig, 12>, 12>,
-) {
-  let old_nullifier: MNT4BigFr = LeafH::evaluate(leaf_crh_params, vec![*leaked_secret]).unwrap();
+) -> (MNT4BigFr, MNT4BigFr) {
+  let new_secret: MNT4BigFr = -*leaked_secret;
+  let nullifier: MNT4BigFr = LeafH::evaluate(leaf_crh_params, vec![new_secret]).unwrap();
+  (nullifier, new_secret)
+}
+
+// not that simple
+fn get_hack_negative(
+  leaf_crh_params: &PoseidonConfig<MNT4BigFr>,
+  leaked_secret: &MNT4BigFr,
+) -> (MNT4BigFr, MNT4BigFr) {
   let new_secret: MNT4BigFr = -*leaked_secret;
   let nullifier: MNT4BigFr = LeafH::evaluate(leaf_crh_params, vec![new_secret]).unwrap();
   (nullifier, new_secret)
