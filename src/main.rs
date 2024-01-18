@@ -2,7 +2,15 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 #![allow(unreachable_code)]
-use std::{fs::File, io::Cursor};
+#![allow(non_snake_case)]
+#![allow(clippy::clone_on_copy)]
+
+use std::{
+  borrow::{Borrow, BorrowMut},
+  fs::File,
+  io::Cursor,
+  ops::Mul,
+};
 
 use ark_crypto_primitives::{
   crh::{poseidon, TwoToOneCRHScheme, *},
@@ -10,8 +18,8 @@ use ark_crypto_primitives::{
   snark::SNARK,
   sponge::poseidon::PoseidonConfig,
 };
-use ark_ec::AffineRepr;
-use ark_ff::PrimeField;
+use ark_ec::{short_weierstrass::Affine, AffineRepr, Group};
+use ark_ff::{MontBackend, PrimeField};
 use ark_groth16::Groth16;
 use ark_mnt4_753::{Fr as MNT4BigFr, MNT4_753};
 use ark_mnt6_753::{constraints::G1Var, Fr as MNT6BigFr, G1Affine};
@@ -23,6 +31,12 @@ use log::{debug, info};
 use prompt::{puzzle, welcome};
 
 pub mod poseidon_parameters;
+
+pub const PUZZLE_DESCRIPTION: &str = r"
+Bob was deeply inspired by the Zcash design [1] for private transactions [2] and had some pretty cool ideas on how to adapt it for his requirements. He was also inspired by the Mina design for the lightest blockchain and wanted to combine the two. In order to achieve that, Bob used the MNT7653 cycle of curves to enable efficient infinite recursion, and used elliptic curve public keys to authorize spends. He released a first version of the system to the world and Alice soon announced she was able to double spend by creating two different nullifiers for the same key...
+
+[1] https://zips.z.cash/protocol/protocol.pdf
+";
 
 type ConstraintF = MNT4BigFr;
 
@@ -105,9 +119,6 @@ impl ConstraintSynthesizer<ConstraintF> for SpendCircuit {
     // base = Generator G over MNT6
     // secret key z
     // pk = (z*G).x
-    //
-    // inverse attempt, try:
-    // pk = ((-z) * G).x
     let base = G1Var::new_constant(ark_relations::ns!(cs, "base"), G1Affine::generator())?;
     let pk = base.scalar_mul_le(secret_bits.iter())?.to_affine()?;
 
@@ -140,8 +151,7 @@ fn main() {
   let rng = &mut ark_std::rand::rngs::StdRng::seed_from_u64(0u64);
   let _ = env_logger::builder().filter_level(log::LevelFilter::Debug).try_init();
 
-  // note that merkle tree elements constructed over mnt4, while circuit over mnt6?
-  //
+  // note that merkle tree elements constructed over mnt4, while circuit over mnt6
   // Construct the merkle tree with poseidon as hash:
   let leaves: Vec<Vec<MNT4BigFr>> = from_file("./leaves.bin");
   let leaked_secret: MNT4BigFr = from_file("./leaked_secret.bin");
@@ -187,9 +197,8 @@ fn main() {
   info!("first proof verifed");
 
   // Enter your solution here
-  // we will generate a faulty secret, that satisfy the same tree proof for leaf at
-  // index 2
-  let (nullifier_hack, secret_hack) = get_hack(&leaf_crh_params, &leaked_secret);
+  let secret_hack = get_hack(&leaf_crh_params, &leaked_secret);
+  let nullifier_hack: MNT4BigFr = LeafH::evaluate(&leaf_crh_params, vec![secret_hack]).unwrap();
   // End of solution
 
   assert_ne!(nullifier, nullifier_hack);
@@ -211,41 +220,37 @@ fn main() {
   assert!(out);
 }
 
-fn get_hack(
+fn get_hack_can_we_do_arithmetic(
   leaf_crh_params: &PoseidonConfig<MNT4BigFr>,
   leaked_secret: &MNT4BigFr,
-) -> (MNT4BigFr, MNT4BigFr) {
-  let new_secret: MNT4BigFr = -*leaked_secret;
+) -> MNT4BigFr {
+  let s = leaked_secret.clone();
+  use ark_ff::Field;
+  let s_inv = s.inverse().unwrap();
+  let secret = s.0;
+  let G = G1Affine::generator();
+  let pk = G.mul_bigint(secret);
+  let y = pk.y;
+  let neg_2_y: ark_ff::Fp<MontBackend<ark_mnt4_753::FrConfig, 12>, 12> = -(y + y);
+
+  // s^{-1} * (-2y)
+  let new_secret = s_inv * neg_2_y;
+
   let nullifier: MNT4BigFr = LeafH::evaluate(leaf_crh_params, vec![new_secret]).unwrap();
-  (nullifier, new_secret)
+  new_secret
 }
 
 // not that simple
 fn get_hack_negative(
   leaf_crh_params: &PoseidonConfig<MNT4BigFr>,
   leaked_secret: &MNT4BigFr,
-) -> (MNT4BigFr, MNT4BigFr) {
-  let new_secret: MNT4BigFr = -*leaked_secret;
+) -> MNT4BigFr {
+  let two = MNT4BigFr::from(2u8);
+  let new_secret = two * leaked_secret;
   let nullifier: MNT4BigFr = LeafH::evaluate(leaf_crh_params, vec![new_secret]).unwrap();
-  (nullifier, new_secret)
+  new_secret
 }
 
-// base = Generator G over MNT6
-// secret key z
-// pk = (z*G).x
-//
-// inverse attempt, try:
-// pk = ((-z) * G).x
-
-// use ark_ec::pairing::Pairing;
-// use ark_std::UniformRand;
-// let new_secret: MNT4BigFr = MNT4BigFr::rand(rng);
-
-// let g1: G1Affine = ark_mnt6_753::G1Affine::generator();
-// //   let pairing = ark_mnt6_753::MNT6_753::pairing(&g1, &new_secret);
-
-const PUZZLE_DESCRIPTION: &str = r"
-Bob was deeply inspired by the Zcash design [1] for private transactions [2] and had some pretty cool ideas on how to adapt it for his requirements. He was also inspired by the Mina design for the lightest blockchain and wanted to combine the two. In order to achieve that, Bob used the MNT7653 cycle of curves to enable efficient infinite recursion, and used elliptic curve public keys to authorize spends. He released a first version of the system to the world and Alice soon announced she was able to double spend by creating two different nullifiers for the same key...
-
-[1] https://zips.z.cash/protocol/protocol.pdf
-";
+fn get_hack(leaf_crh_params: &PoseidonConfig<MNT4BigFr>, leaked_secret: &MNT4BigFr) -> MNT4BigFr {
+  todo!()
+}
