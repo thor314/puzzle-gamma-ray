@@ -1,12 +1,7 @@
 #![allow(non_snake_case)]
 #![allow(clippy::clone_on_copy)]
 
-use std::{
-  borrow::{Borrow, BorrowMut},
-  fs::File,
-  io::Cursor,
-  ops::Mul,
-};
+use std::{fs::File, io::Cursor};
 
 use ark_crypto_primitives::{
   crh::{poseidon, TwoToOneCRHScheme, *},
@@ -14,7 +9,7 @@ use ark_crypto_primitives::{
   snark::SNARK,
   sponge::poseidon::PoseidonConfig,
 };
-use ark_ec::{short_weierstrass::Affine, AffineRepr, Group};
+use ark_ec::{AffineRepr, Group};
 use ark_ff::{MontBackend, PrimeField};
 use ark_groth16::Groth16;
 use ark_mnt4_753::{Fr as MNT4BigFr, MNT4_753};
@@ -22,9 +17,8 @@ use ark_mnt6_753::{constraints::G1Var, Fr as MNT6BigFr, G1Affine};
 use ark_r1cs_std::{fields::fp::FpVar, prelude::*};
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
 use ark_serialize::{CanonicalDeserialize, Read};
-use ark_std::rand::{rngs::StdRng, SeedableRng};
+use ark_std::rand::SeedableRng;
 use log::{debug, info};
-use prompt::{puzzle, welcome};
 
 pub mod poseidon_parameters;
 
@@ -174,7 +168,7 @@ fn main() {
   assert!(tree_proof.verify(&leaf_crh_params, &leaf_crh_params, &root, leaf.as_slice()).unwrap());
   info!("tree proof verifed");
 
-  let c = SpendCircuit {
+  let _c = SpendCircuit {
     leaf_params: leaf_crh_params.clone(),
     two_to_one_params: leaf_crh_params.clone(),
     root,
@@ -223,16 +217,17 @@ fn main() {
 /// s'G = O-sG = nG-sG
 /// =(n-s)G
 /// \therefore s'=(n+s)
-fn get_hack(
-  leaf_crh_params: &PoseidonConfig<MNT4BigFr>,
-  leaked_secret: &MNT4BigFr,
-) -> MNT4BigFr {
+fn get_hack(_leaf_crh_params: &PoseidonConfig<MNT4BigFr>, leaked_secret: &MNT4BigFr) -> MNT4BigFr {
   let n = MNT4BigFr::from(MNT6BigFr::MODULUS);
   n - *leaked_secret
 }
 
 // note to kobi++: welcome to read on, but it's mostly me whining about the arkworks trait system
 mod notes {
+  #![allow(unused_imports)]
+  #![allow(unused_variables)]
+  #![allow(dead_code)]
+  #![allow(unreachable_code)]
   use super::*;
   // try something that requires us to do arithmetic
   fn get_hack_can_we_do_arithmetic(
@@ -251,7 +246,7 @@ mod notes {
     // s^{-1} * (-2y)
     let new_secret = s_inv * neg_2_y;
 
-    let nullifier: MNT4BigFr = LeafH::evaluate(leaf_crh_params, vec![new_secret]).unwrap();
+    let _nullifier: MNT4BigFr = LeafH::evaluate(leaf_crh_params, vec![new_secret]).unwrap();
     new_secret
   }
 
@@ -262,7 +257,7 @@ mod notes {
   ) -> MNT4BigFr {
     let two = MNT4BigFr::from(2u8);
     let new_secret = two * leaked_secret;
-    let nullifier: MNT4BigFr = LeafH::evaluate(leaf_crh_params, vec![new_secret]).unwrap();
+    let _nullifier: MNT4BigFr = LeafH::evaluate(leaf_crh_params, vec![new_secret]).unwrap();
     new_secret
   }
 
@@ -274,7 +269,10 @@ mod notes {
   /// s'G = O-sG = nG-sG
   /// =(n-s)G
   /// \therefore s'=(n+s)
-  fn get_hack_penultimate(leaf_crh_params: &PoseidonConfig<MNT4BigFr>, leaked_secret: &MNT4BigFr) -> MNT4BigFr {
+  fn get_hack_penultimate(
+    _leaf_crh_params: &PoseidonConfig<MNT4BigFr>,
+    leaked_secret: &MNT4BigFr,
+  ) -> MNT4BigFr {
     // we will now try to get the order of G
 
     // https://docs.rs/ark-mnt4-753/latest/ark_mnt4_753/?search=order // nope
