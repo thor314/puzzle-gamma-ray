@@ -1,7 +1,3 @@
-#![allow(unused_imports)]
-#![allow(unused_variables)]
-#![allow(dead_code)]
-#![allow(unreachable_code)]
 #![allow(non_snake_case)]
 #![allow(clippy::clone_on_copy)]
 
@@ -162,7 +158,6 @@ fn main() {
 
   let leaf_crh_params = poseidon_parameters::poseidon_parameters();
   let i = 2;
-  // let leaf_crh_params = leaf_crh_params.clone();
 
   let nullifier = <LeafH as CRHScheme>::evaluate(&leaf_crh_params, [leaked_secret]).unwrap();
 
@@ -220,37 +215,137 @@ fn main() {
   assert!(out);
 }
 
-fn get_hack_can_we_do_arithmetic(
+/// Let:
+/// $P=sG=(x,y)$
+/// $-P=O-P=O-sG=s'G=(x,-y)$
+///
+/// We observe that for the order $n$ of generator $G$, we have $nG=O$, therefore:
+/// s'G = O-sG = nG-sG
+/// =(n-s)G
+/// \therefore s'=(n+s)
+fn get_hack(
   leaf_crh_params: &PoseidonConfig<MNT4BigFr>,
   leaked_secret: &MNT4BigFr,
 ) -> MNT4BigFr {
-  let s = leaked_secret.clone();
-  use ark_ff::Field;
-  let s_inv = s.inverse().unwrap();
-  let secret = s.0;
-  let G = G1Affine::generator();
-  let pk = G.mul_bigint(secret);
-  let y = pk.y;
-  let neg_2_y: ark_ff::Fp<MontBackend<ark_mnt4_753::FrConfig, 12>, 12> = -(y + y);
-
-  // s^{-1} * (-2y)
-  let new_secret = s_inv * neg_2_y;
-
-  let nullifier: MNT4BigFr = LeafH::evaluate(leaf_crh_params, vec![new_secret]).unwrap();
-  new_secret
+  let n = MNT4BigFr::from(MNT6BigFr::MODULUS);
+  n - *leaked_secret
 }
 
-// not that simple
-fn get_hack_negative(
-  leaf_crh_params: &PoseidonConfig<MNT4BigFr>,
-  leaked_secret: &MNT4BigFr,
-) -> MNT4BigFr {
-  let two = MNT4BigFr::from(2u8);
-  let new_secret = two * leaked_secret;
-  let nullifier: MNT4BigFr = LeafH::evaluate(leaf_crh_params, vec![new_secret]).unwrap();
-  new_secret
-}
+// note to kobi++: welcome to read on, but it's mostly me whining about the arkworks trait system
+mod notes {
+  use super::*;
+  // try something that requires us to do arithmetic
+  fn get_hack_can_we_do_arithmetic(
+    leaf_crh_params: &PoseidonConfig<MNT4BigFr>,
+    leaked_secret: &MNT4BigFr,
+  ) -> MNT4BigFr {
+    let s = leaked_secret.clone();
+    use ark_ff::Field;
+    let s_inv = s.inverse().unwrap();
+    let secret = s.0;
+    let G = G1Affine::generator();
+    let pk = G.mul_bigint(secret);
+    let y = pk.y;
+    let neg_2_y: ark_ff::Fp<MontBackend<ark_mnt4_753::FrConfig, 12>, 12> = -(y + y);
 
-fn get_hack(leaf_crh_params: &PoseidonConfig<MNT4BigFr>, leaked_secret: &MNT4BigFr) -> MNT4BigFr {
-  todo!()
+    // s^{-1} * (-2y)
+    let new_secret = s_inv * neg_2_y;
+
+    let nullifier: MNT4BigFr = LeafH::evaluate(leaf_crh_params, vec![new_secret]).unwrap();
+    new_secret
+  }
+
+  // not that simple
+  fn get_hack_negative(
+    leaf_crh_params: &PoseidonConfig<MNT4BigFr>,
+    leaked_secret: &MNT4BigFr,
+  ) -> MNT4BigFr {
+    let two = MNT4BigFr::from(2u8);
+    let new_secret = two * leaked_secret;
+    let nullifier: MNT4BigFr = LeafH::evaluate(leaf_crh_params, vec![new_secret]).unwrap();
+    new_secret
+  }
+
+  /// Let:
+  /// $P=sG=(x,y)$
+  /// $-P=O-P=O-sG=s'G=(x,-y)$
+  ///
+  /// We observe that for the order $n$ of generator $G$, we have $nG=O$, therefore:
+  /// s'G = O-sG = nG-sG
+  /// =(n-s)G
+  /// \therefore s'=(n+s)
+  fn get_hack_penultimate(leaf_crh_params: &PoseidonConfig<MNT4BigFr>, leaked_secret: &MNT4BigFr) -> MNT4BigFr {
+    // we will now try to get the order of G
+
+    // https://docs.rs/ark-mnt4-753/latest/ark_mnt4_753/?search=order // nope
+    // https://docs.rs/ark-ec/latest/ark_ec/?search=order // nope
+    // https://docs.rs/ark-ec/latest/ark_ec/ ctrl f order
+    // > Group Represents (elements of) a group of prime order r.
+    // so try getting the group and asking for parameter r?
+    // // type ScalarField: PrimeField // also noted
+    // The scalar field F_r, where r is the order of this group.
+
+    // let n = G1Affine::subgroup_order(); // no such luck
+    // let n = G1Affine::into_group(self)
+    // let G: G1Affine<_> = G1Affine::generator(); // this checks but intellisense can't read it
+    // // note that pub type G1Var = mnt6::G1Var<Config>;
+    // let G: G1Var = G1Affine::generator(); // G1Var is projective (why then not call it
+    // G1Projective?) can we into_projective? // intellisense says no.
+    // let G = G1Projective::generator();
+    // let G1Var:: // no suggestions
+    // let G1 // nothing
+    // let a = MNT6BigFr:: // no useful suggestions
+    // more type fail-log elided
+
+    // I could maybe try try to construct the order from MNT6BigFr::MODULUS - 1 as MNT4BigFr
+
+    // intellisense won't suggest MODULUS, but it's thereeee
+    // let n = MNT4BigFr::from(MNT4BigFr::MODULUS); // panic (naturally)
+    let n = MNT4BigFr::from(MNT6BigFr::MODULUS);
+
+    // now check that n is correct: nG = O where O + O == O
+    // hack_check(n);
+    // - * leaked_secret
+    n - *leaked_secret
+  }
+
+  // note that:
+  // pub type G1Affine<P> = Affine<<P as MNT6Config>::G1Config>;
+  // pub type G1Projective<P> = Projective<<P as MNT6Config>::G1Config>;
+  fn hack_check(n: MNT4BigFr) {
+    // yeet, can't multiply affine points apparantly
+    // let G = G1Affine::generator();
+    // `Borrow<ark_ff::Fp<MontBackend<ark_mnt4_753::FqConfig, 12>, 12>>` is not implemented for
+    //       `&ark_ff::Fp<MontBackend<ark_mnt4_753::FrConfig, 12>, 12>`
+    // let O = G * &n;
+
+    // we move to projective coords, maybe we can multiply there
+
+    // type annotations needed apparently
+    // let G = G1Projective::generator();
+
+    // ambiguous associated type:
+    // let G: ark_ec::short_weierstrass::Projective<mnt6::MNT6Config>::G1Config =
+    // G1Projective::generator();
+    // use mnt6::{MNT6Config, MNT6};
+    // use ark_mnt6_753::Config as Mnt6Config;
+    // let G: MNT6<Mnt6Config>:: = G1Projective::generator();
+    // let G: <MNT6<Config> as MNT6Config>::G1Config = G1Projective::generator();
+
+    // dude I just want to multiply a point with a scalar why is this so hard
+
+    // these are definitely the wrong group
+    // let G = G1Projective::generator();
+    // let G = ark_mnt6_753::g2::G2Affine::generator(); // not it
+    // let G = ark_mnt6_753::g1::G1Affine::generator(); // not it
+
+    // both of these type check, why is that
+    let G = ark_mnt4_753::g1::G1Projective::generator();
+    let O = G * n;
+    debug!("mnt4g1 O+O == O? {}", O == O + O);
+    let G = ark_mnt4_753::g2::G2Projective::generator();
+    let O = G * n;
+    debug!("mnt4g2 O+O == O? {}", O == O + O);
+    // assert!(O + O == O);
+  }
 }
